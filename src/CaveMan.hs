@@ -1,6 +1,8 @@
 module CaveMan where
 
 import Graphics
+import Math.Utils
+import Tile
 
 import Control.Applicative
 import Control.Monad
@@ -27,8 +29,8 @@ newCaveMan  =  CaveMan
 
 (=:) :: MVar a -> a -> IO ()
 var =: x = do
-  _ <- takeMVar var
-  x `seq` putMVar var x
+  _ <- tryTakeMVar var
+  putMVar var $! x
 
 data ChunkRef
   = ChunkRef  FilePath
@@ -41,7 +43,7 @@ initCaves  = do
   cm  <- newCaveMan
   caveChunks cm =: Map.empty
   cavePlayer cm =: emptyPlayer
-  loadChunk (0,0) cm
+  _ <- loadChunk (0,0) cm
   sequence_ [ loadChunk (x,y) cm | y <- [(-1), 0, 1], x <- [(-1), 0, 1] ]
   return cm
 
@@ -53,49 +55,69 @@ split5 gen = (g0,g1,g2,g3,g4)
   (g2,gen3) = split gen2
   (g3,g4)   = split gen3
 
-loadChunk :: ChunkId -> CaveMan -> IO ()
+loadChunk :: ChunkId -> CaveMan -> IO Chunk
 loadChunk gid cm =
-  modifyMVar_ (caveChunks cm) $ \ c -> do
+  modifyMVar (caveChunks cm) $ \ c -> do
     case Map.lookup gid c of
       Just (ChunkSeed gen) -> body c gen
       Just (ChunkRef path) -> undefined
+      Just (ChunkVal ch)   -> return (c,ch)
       Nothing              -> body c =<< newStdGen
-      _                    -> return c
     where
     body c gen = do
       let (g0,g1,g2,g3,g4) = split5 gen
       c0  <- emptyChunk g0
       simulateChunk c0
-      return $ Map.insert gid (ChunkVal c0)
+      let c' = Map.insert gid (ChunkVal c0)
              $ seedChunk (idNorth gid) g1
              $ seedChunk (idEast  gid) g2
              $ seedChunk (idSouth gid) g3
              $ seedChunk (idWest  gid) g4 c
+      c' `seq` return (c',c0)
 
 seedChunk :: ChunkId -> StdGen -> Chunks -> Chunks
 seedChunk gid gen c
   | Map.member gid c = c
   | otherwise        = Map.insert gid (ChunkSeed gen) c
 
--- the player is the origin of the rendering.
-drawCaves :: CaveMan -> IO ()
-drawCaves cm = do
-  pos <- readMVar (cavePlayer cm)
-  cs  <- readMVar (caveChunks cm)
-  -- do some rendering here
-  return ()
+renderCaves :: CellPalette Tile -> CaveMan -> IO ()
+renderCaves pal cm = do
+
+  p <- readMVar (cavePlayer cm)
+  renderPlayer
+
+  renderOrigin p
+
+  -- retrieve the active chunks
+  let chunk pos ix = do
+        ch <- loadChunk ix cm
+        renderChunk pal pos ch
+  zipWithM_ chunk chunkGrid (activeChunks p)
+
+chunkGrid = [ (x,y) | y <- [1,0,-1] , x <- [-1,0,1] ]
+
+
+renderOrigin :: Player -> IO ()
+renderOrigin p = translate (playerX p) (playerY p) 0
 
 
 -- Player ----------------------------------------------------------------------
 
 data Player = Player
-  { playerX :: !Double
-  , playerY :: !Double
-  }
+  { playerX :: !GLfloat
+  , playerY :: !GLfloat
+  } deriving Show
+
+renderPlayer :: IO ()
+renderPlayer  = renderPrimitive Triangles $ do
+  color3 1 1 1
+  vertex2d 0 0.1
+  vertex2d (-0.05) 0
+  vertex2d 0 0.05
 
 emptyPlayer = Player
-  { playerX = fromIntegral chunkWidth  / 2
-  , playerY = fromIntegral chunkHeight / 2
+  { playerX = 0
+  , playerY = 0
   }
 
 movePlayer :: Movement -> CaveMan -> IO ()
@@ -111,32 +133,34 @@ playerChunk p = (x `div` chunkWidth, y `div` chunkHeight)
   x = ceiling (playerX p)
   y = ceiling (playerY p)
 
+-- | Enumerate the blocks that surround the player, starting from the top-left
+-- and ending in the bottom-right.
 activeChunks :: Player -> [ChunkId]
 activeChunks p = do
   let (x0,y0) = playerChunk p
+  y <- [y0+1, y0, y0-1]
   x <- [x0-1, x0, x0+1]
-  y <- [y0-1, y0, y0+1]
   return (x,y)
 
 
 -- Player Movement -------------------------------------------------------------
 
-playerIncrement :: Double
-playerIncrement  = 0.2
+playerIncrement :: GLfloat
+playerIncrement  = 0.04
 
 type Movement = Player -> Player
 
 moveNorth :: Movement
-moveNorth p = p { playerY = playerY p + playerIncrement }
+moveNorth p = p { playerY = playerY p - playerIncrement }
 
 moveSouth :: Movement
-moveSouth p = p { playerY = playerY p - playerIncrement }
+moveSouth p = p { playerY = playerY p + playerIncrement }
 
 moveEast :: Movement
-moveEast p = p { playerX = playerX p + playerIncrement }
+moveEast p = p { playerX = playerX p - playerIncrement }
 
 moveWest :: Movement
-moveWest p = p { playerX = playerX p - playerIncrement }
+moveWest p = p { playerX = playerX p + playerIncrement }
 
 
 -- Chunk Ids -------------------------------------------------------------------
@@ -174,10 +198,28 @@ emptyChunk gen = do
     , chunkCells = cells
     }
 
-renderChunk :: CellPalette Texture -> Chunk -> IO ()
-renderChunk p c = do
-  -- render chunks here
-  return ()
+chunkRenderPos :: ChunkId -> (GLfloat,GLfloat)
+chunkRenderPos (x,y) = (fromIntegral x * 0.2, fromIntegral y * 0.2)
+
+chunkOrigin :: ChunkId -> IO () -> IO ()
+chunkOrigin cid m = withMatrix $ do
+  let (x,y) = chunkRenderPos cid
+  translate (x*fromIntegral chunkWidth) (y*fromIntegral chunkHeight) 0
+  m
+
+renderChunk :: CellPalette Tile -> ChunkId -> Chunk -> IO ()
+renderChunk pal ix0 ch = chunkOrigin ix0 (forM_ (range chunkBounds) cell)
+  where
+  cells = chunkCells ch
+  cell ix = do
+    let (x,y) = chunkRenderPos ix
+    c <- readArray cells ix
+    setTile (fmtCell pal c)
+    renderPrimitive Quads $ do
+      vertex2d  x     y
+      vertex2d (x+1)  y
+      vertex2d (x+1) (y+1)
+      vertex2d  x    (y+1)
 
 simulateChunk :: Chunk -> IO ()
 simulateChunk c = do
