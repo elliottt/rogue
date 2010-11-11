@@ -1,2 +1,4 @@
 ghc
 test
+test.*
+*.o
