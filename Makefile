@@ -1,6 +1,13 @@
 
+profile		?= n
+
 GHC_DIR	= ghc
 GHC	= ghc -i$(GHC_DIR) -odir $(GHC_DIR) -hidir $(GHC_DIR)
+HSFLAGS	= -O2
+
+ifeq ($(profile),y)
+HSFLAGS+= -prof -auto-all
+endif
 
 CC	= gcc
 CFLAGS	= $(shell sdl-config --cflags)
@@ -25,13 +32,14 @@ SLASH_MODS	= $(subst src/,,$(basename $(shell find src -name '*.hs')))
 HS_SOURCES	= $(addprefix src/,$(addsuffix .hs,$(SLASH_MODS)))
 HS_OBJS		= $(addprefix $(GHC_DIR)/,$(addsuffix .o,$(SLASH_MODS)))
 HS_LIBS		= -package OpenGL -package containers -package SDL \
-		  -package SDL-image -package stm
+		  -package SDL-image -package stm \
+		  -package vector-0.7.0.1
 
 
 all: test
 
 test: cbits/sdl-opengl.o $(HS_OBJS)
-	$(QUIET_GHC) $(GHC) -threaded $(HS_LIBS) -o $@ $^
+	$(QUIET_GHC) $(GHC) $(HSFLAGS) -threaded $(HS_LIBS) -o $@ $^
 
 cbits/sdl-opengl.o: cbits/sdl-opengl.c
 	$(QUIET_CC) $(CC) $(CFLAGS) -c $< -o $@
@@ -48,7 +56,7 @@ $(GHC_DIR)/depend: $(GHC_DIR)
 	$(QUIET_DEPEND) $(GHC) -M -dep-makefile $@ $(HS_SOURCES)
 
 $(GHC_DIR)/%.o: src/%.hs
-	$(QUIET_GHC) $(GHC) -c $<
+	$(QUIET_GHC) $(GHC) $(HSFLAGS) -c $<
 
 %.hi : %.o ;
 

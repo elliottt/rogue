@@ -21,11 +21,12 @@ main  = do
     win `listen` \ (KeyDown sym) ->
       case symKey sym of
         SDLK_e  -> putStrLn "E"
+        SDLK_q  -> exitSuccess
 
-        SDLK_UP    -> movePlayer moveNorth cm
-        SDLK_DOWN  -> movePlayer moveSouth cm
-        SDLK_LEFT  -> movePlayer moveWest  cm
-        SDLK_RIGHT -> movePlayer moveEast cm
+        SDLK_UP    -> movePlayer moveForward  cm
+        SDLK_DOWN  -> movePlayer moveBackward cm
+        SDLK_LEFT  -> movePlayer rotLeft      cm
+        SDLK_RIGHT -> movePlayer rotRight     cm
 
         _       -> return ()
 
