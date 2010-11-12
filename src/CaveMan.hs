@@ -1,6 +1,7 @@
 module CaveMan where
 
 import Graphics
+import Math.AffinePlane
 import Math.Utils
 import Tile
 
@@ -88,42 +89,47 @@ renderCaves pal cm = do
   renderPlayer
 
   renderOrigin p
-  print (playerChunk p,p)
+  print (playerChunk p,playerDir p)
 
   -- retrieve the active chunks
-  let chunk pos ix = do
-        ch <- loadChunk ix cm
-        renderChunk pal pos ch
-  zipWithM_ chunk chunkGrid (activeChunks p)
-
-chunkGrid = [ (x,y) | y <- [1,0,-1] , x <- [-1,0,1] ]
-
+  let chunk ix = renderChunk pal ix =<< loadChunk ix cm
+  mapM_ chunk (activeChunks p)
 
 renderOrigin :: Player -> IO ()
 renderOrigin p = do
-  translate (negate (playerX p)) (negate (playerY p)) 0
-  rotate (playerRot p) 0 0 1
+  let rads = negate (vectorRads (playerDir p))
+  rotate (radsToDegrees rads) 0 0 1
+
+  let Point  x y = playerPos p
+  translate (negate x) (negate y) 0
+
+radsToDegrees :: GLfloat -> GLfloat
+radsToDegrees rads = rads * 180 / pi
+
+vectorRads :: Vector GLfloat -> GLfloat
+vectorRads v = atan2 0 1 - atan2 a b
+  where
+  Vector a b = unitV v
 
 
 -- Player ----------------------------------------------------------------------
 
 data Player = Player
-  { playerX   :: !GLfloat
-  , playerY   :: !GLfloat
-  , playerRot :: !GLfloat
+  { playerPos :: Point  GLfloat
+  , playerDir :: Vector GLfloat
   } deriving Show
 
 renderPlayer :: IO ()
 renderPlayer  = renderPrimitive Triangles $ do
   color3 1 1 1
-  vertex2d 0 0.1
-  vertex2d (-0.05) 0
-  vertex2d 0 0.05
+  let vert a b = vertex2d (a :: GLfloat) b
+  vert 0 0.1
+  vert (-0.05) 0
+  vert 0 0.05
 
 emptyPlayer = Player
-  { playerX   = 0
-  , playerY   = 0
-  , playerRot = 0
+  { playerPos = zero
+  , playerDir = Vector 0 1
   }
 
 movePlayer :: Movement -> CaveMan -> IO ()
@@ -134,10 +140,11 @@ movePlayer move cm = do
 
 -- | Given a player, decide what chunk they're contained within.
 playerChunk :: Player -> ChunkId
-playerChunk p = (x `div` chunkWidth, y `div` chunkHeight)
+playerChunk p = (x, y)
   where
-  x = ceiling (playerX p / cellSize)
-  y = ceiling (playerY p / cellSize)
+  Point px py = playerPos p
+  x           = floor (px / (fromIntegral chunkWidth  * cellSize))
+  y           = floor (py / (fromIntegral chunkHeight * cellSize))
 
 -- | Enumerate the blocks that surround the player, starting from the top-left
 -- and ending in the bottom-right.
@@ -152,21 +159,40 @@ activeChunks p = do
 -- Player Movement -------------------------------------------------------------
 
 playerIncrement :: GLfloat
-playerIncrement  = 1
+playerIncrement  = 0.05
 
 type Movement = Player -> Player
 
 moveForward :: Movement
-moveForward p = p { playerY = playerY p + playerIncrement }
+moveForward p = p
+  { playerPos = playerPos p .+^ (playerIncrement *^ playerDir p)
+  }
 
 moveBackward :: Movement
-moveBackward p = p { playerY = playerY p - playerIncrement }
+moveBackward p = p
+  { playerPos = playerPos p .-^ (playerIncrement *^ playerDir p)
+  }
+
+playerRotate :: GLfloat
+playerRotate  = pi / 90
 
 rotLeft :: Movement
-rotLeft p = p { playerRot = playerRot p - 1 }
+rotLeft p = p { playerDir = Vector x' y' }
+  where
+  srot        = sin playerRotate
+  crot        = cos playerRotate
+  Vector x y  = playerDir p
+  x'          = crot * x - srot * y
+  y'          = srot * x + crot * y
 
 rotRight :: Movement
-rotRight p = p { playerRot = playerRot p + 1 }
+rotRight p = p { playerDir = Vector x' y' }
+  where
+  srot        = sin (negate playerRotate)
+  crot        = cos (negate playerRotate)
+  Vector x y  = playerDir p
+  x'          = crot * x - srot * y
+  y'          = srot * x + crot * y
 
 
 -- Chunk Ids -------------------------------------------------------------------
@@ -183,8 +209,8 @@ idWest  (x,y) = (x-1,y)
 -- Chunks ----------------------------------------------------------------------
 
 chunkWidth, chunkHeight, chunkLen :: Int
-chunkWidth  = 128
-chunkHeight = 128
+chunkWidth  = 64
+chunkHeight = 64
 chunkLen    = chunkWidth * chunkHeight
 
 type Bounds a = (a,a)
@@ -239,7 +265,7 @@ renderChunk pal ix0 ch = chunkOrigin ix0 $ renderPrimitive Quads $ do
 
 simulateChunk :: Chunk -> IO ()
 simulateChunk c = do
-  randomizeChunk 0.55 c
+  randomizeChunk 0.6 c
   replicateM_ 4 (stepChunk c)
   finalizeChunk 0.9 c
 

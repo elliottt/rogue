@@ -1,9 +1,10 @@
 module Math.Utils (
     module Math.Utils
   , GLfloat
+  , GLdouble
   ) where
 
-import Graphics.Rendering.OpenGL.GL (GLfloat)
+import Graphics.Rendering.OpenGL.GL (GLfloat,GLdouble)
 
 rangeOverlap :: (GLfloat,GLfloat) -> (GLfloat,GLfloat) -> GLfloat
 rangeOverlap (a1,b1) (a2,b2)
@@ -22,3 +23,7 @@ instance HasZero GLfloat where
 withinZero :: GLfloat -> Bool
 withinZero z = abs z <= 0.0001
 
+instance HasZero GLdouble where
+  zero     = 0
+  isZero 0 = True
+  isZero _ = False

@@ -93,10 +93,10 @@ clearScreen  = do
 
 -- Matrix Manipulation ---------------------------------------------------------
 
-translate :: GLfloat -> GLfloat -> GLfloat -> IO ()
+translate :: GL.MatrixComponent c => c -> c -> c -> IO ()
 translate x y z = GL.translate (GL.Vector3 x y z)
 
-rotate :: GLfloat -> GLfloat -> GLfloat -> GLfloat -> IO ()
+rotate :: GL.MatrixComponent c => c -> c -> c -> c -> IO ()
 rotate r x y z = GL.rotate r (GL.Vector3 x y z)
 
 scale :: GLfloat -> GLfloat -> GLfloat -> IO ()
@@ -108,7 +108,7 @@ withMatrix = GL.unsafePreservingMatrix
 
 -- Rendering -------------------------------------------------------------------
 
-vertex2d :: GLfloat -> GLfloat -> IO ()
+vertex2d :: GL.VertexComponent a => a -> a -> IO ()
 vertex2d x y = GL.vertex (GL.Vertex2 x y)
 
 color3 :: GLfloat -> GLfloat -> GLfloat -> IO ()
