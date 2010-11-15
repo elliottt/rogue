@@ -36,6 +36,7 @@ module Graphics (
   , GL.renderPrimitive
   , GL.PrimitiveMode(..)
   , SDL.quit
+  , SDL.delay
   ) where
 
 import Math.AffinePlane

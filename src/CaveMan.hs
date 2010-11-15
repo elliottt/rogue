@@ -9,25 +9,88 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Primitive (PrimState)
 import Control.Concurrent
+import Data.Maybe
 import System.Random
 import qualified Data.Map            as Map
+import qualified Data.Set            as Set
 import qualified Data.Vector         as Vec
 import qualified Data.Vector.Mutable as MVec
+
+
+-- Viewable Screen -------------------------------------------------------------
+
+newtype Screen = Screen { screenCells :: MVec.MVector (PrimState IO) Cell }
+
+-- | Allocate a new Screen that is big enough to hold the nine active chunks.
+newScreen :: IO Screen
+newScreen  = do
+  cells <- MVec.replicate screenSize floorCell
+  return Screen { screenCells = cells }
+
+screenSize = chunkLen * 9
+
+writeCell :: Screen -> Int -> Cell -> IO ()
+writeCell (Screen mv) = MVec.write mv
+
+readCell :: Screen -> Int -> IO Cell
+readCell (Screen mv) = MVec.read mv
+
+renderScreen :: CellPalette Tile -> CaveMan -> Screen -> IO ()
+renderScreen pal cm screen = withMatrix $ do
+  p <- readMVar (cavePlayer cm)
+
+  renderPlayer
+  renderOrigin p
+
+  -- render the cells, after translating out based on the center of the map
+  let loop i x y
+        | i == screenSize = return ()
+        | otherwise       = do
+          cell <- readCell screen i
+
+          setTile (fmtCell pal cell)
+          vertex2d (x+cellSize) (y+cellSize) -- top right
+          vertex2d  x           (y+cellSize) -- top left
+          vertex2d  x            y           -- bottom left
+          vertex2d (x+cellSize)  y           -- bottom right
+
+          let i'             = i + 1
+              boundary       = i' `mod` screenWidth == 0
+              x' | boundary  = screenX
+                 | otherwise = x + cellSize
+              y' | boundary  = y + cellSize
+                 | otherwise = y
+
+          loop i' x' y'
+
+  renderPrimitive Quads (loop 0 screenX screenY)
+
+screenX     = negate (fromIntegral chunkWidth  * cellSize * 1.5)
+screenWidth = chunkWidth * 3
+screenY     = negate (fromIntegral chunkHeight * cellSize * 1.5)
+
 
 
 -- Cave Manager ----------------------------------------------------------------
 
 type Chunks = Map.Map ChunkId ChunkRef
 
+-- Index into the chunk
+type Light = (Int,Int)
+
+type Lights = Map.Map ChunkId [Light]
+
 data CaveMan = CaveMan
   { caveChunks :: MVar Chunks
   , cavePlayer :: MVar Player
+  , caveLights :: MVar Lights
   }
 
 newCaveMan :: IO CaveMan
 newCaveMan  =  CaveMan
            <$> newEmptyMVar -- caves
            <*> newEmptyMVar -- player
+           <*> newEmptyMVar -- lights
 
 (=:) :: MVar a -> a -> IO ()
 var =: x = do
@@ -45,8 +108,8 @@ initCaves  = do
   cm  <- newCaveMan
   caveChunks cm =: Map.empty
   cavePlayer cm =: emptyPlayer
-  _ <- loadChunk (0,0) cm
-  sequence_ [ loadChunk (x,y) cm | y <- [(-1), 0, 1], x <- [(-1), 0, 1] ]
+  _ <- loadChunk cm (0,0)
+  sequence_ [ loadChunk cm (x,y) | y <- [(-1), 0, 1], x <- [(-1), 0, 1] ]
   return cm
 
 split5 :: StdGen -> (StdGen,StdGen,StdGen,StdGen,StdGen)
@@ -57,8 +120,8 @@ split5 gen = (g0,g1,g2,g3,g4)
   (g2,gen3) = split gen2
   (g3,g4)   = split gen3
 
-loadChunk :: ChunkId -> CaveMan -> IO Chunk
-loadChunk gid cm =
+loadChunk :: CaveMan -> ChunkId -> IO Chunk
+loadChunk cm gid =
   modifyMVar (caveChunks cm) $ \ c -> do
     case Map.lookup gid c of
       Just (ChunkSeed gen) -> body c gen
@@ -82,26 +145,36 @@ seedChunk gid gen c
   | Map.member gid c = c
   | otherwise        = Map.insert gid (ChunkSeed gen) c
 
-renderCaves :: CellPalette Tile -> CaveMan -> IO ()
-renderCaves pal cm = do
+lookupLights :: ChunkId -> Lights -> [Light]
+lookupLights cid ls = fromMaybe [] (Map.lookup cid ls)
 
+-- | Blit the active chunks into a screen.
+blitCaves :: CaveMan -> Screen -> IO ()
+blitCaves cm screen = do
   p <- readMVar (cavePlayer cm)
-  renderPlayer
-
-  renderOrigin p
-  print (playerChunk p,playerDir p)
 
   -- retrieve the active chunks
-  let chunk ix = renderChunk pal ix =<< loadChunk ix cm
-  mapM_ chunk (activeChunks p)
+  let chunk (off,ix) = do
+        ch <- loadChunk cm ix
+        blitChunk off screen ix ch
+  print p
+  print (zip chunkOffsets (activeChunks p))
+  mapM_ chunk (zip chunkOffsets (activeChunks p))
+
+chunkOffsets :: [(Int,Int)]
+chunkOffsets  = [ (x,y) | y <- [0,1,2], x <- [2,1,0] ]
 
 renderOrigin :: Player -> IO ()
 renderOrigin p = do
   let rads = negate (vectorRads (playerDir p))
   rotate (radsToDegrees rads) 0 0 1
 
-  let Point  x y = playerPos p
-  translate (negate x) (negate y) 0
+  let Point x y = playerPos p
+      f a m = negate (a' - fromIntegral (floor (a' / m)) * m)
+        where
+        a' = a * cellSize
+  -- how should this work?
+  translate (f x chunkWidthF) (f y chunkHeightF) 0
 
 radsToDegrees :: GLfloat -> GLfloat
 radsToDegrees rads = rads * 180 / pi
@@ -143,8 +216,15 @@ playerChunk :: Player -> ChunkId
 playerChunk p = (x, y)
   where
   Point px py = playerPos p
-  x           = floor (px / (fromIntegral chunkWidth  * cellSize))
-  y           = floor (py / (fromIntegral chunkHeight * cellSize))
+  x           = floor (px / cellSize) `div` chunkWidth
+  y           = floor (py / cellSize) `div` chunkHeight
+
+playerChunkPos :: Player -> (Int,Int)
+playerChunkPos p = (x,y)
+  where
+  Point px py = playerPos p
+  x           = floor (px / cellSize) `mod` chunkWidth
+  y           = floor (py / cellSize) `mod` chunkHeight
 
 -- | Enumerate the blocks that surround the player, starting from the top-left
 -- and ending in the bottom-right.
@@ -159,7 +239,7 @@ activeChunks p = do
 -- Player Movement -------------------------------------------------------------
 
 playerIncrement :: GLfloat
-playerIncrement  = 0.05
+playerIncrement  = 0.2
 
 type Movement = Player -> Player
 
@@ -213,6 +293,10 @@ chunkWidth  = 64
 chunkHeight = 64
 chunkLen    = chunkWidth * chunkHeight
 
+chunkWidthF, chunkHeightF :: GLfloat
+chunkWidthF  = fromIntegral chunkWidth
+chunkHeightF = fromIntegral chunkHeight
+
 type Bounds a = (a,a)
 
 data Chunk = Chunk
@@ -240,28 +324,22 @@ chunkOrigin cid m = withMatrix $ do
   translate (x*fromIntegral chunkWidth) (y*fromIntegral chunkHeight) 0
   m
 
-renderChunk :: CellPalette Tile -> ChunkId -> Chunk -> IO ()
-renderChunk pal ix0 ch = chunkOrigin ix0 $ renderPrimitive Quads $ do
+blitChunk :: (Int,Int) -> Screen -> ChunkId -> Chunk -> IO ()
+blitChunk (ox,oy) screen ix0 ch = do
   cells <- Vec.freeze (chunkCells ch)
-  let renderLoop ix x y
-        | ix >= chunkLen = return ()
+  let off0               = ox * chunkWidth + oy * chunkHeight * screenWidth
+  let row                = chunkWidth * 2
+  let blitLoop six ix
+        | ix == chunkLen = return ()
         | otherwise      = do
-
-          setTile (fmtCell pal (cells Vec.! ix))
-          vertex2d (x+cellSize) (y+cellSize) -- top right
-          vertex2d  x           (y+cellSize) -- top left
-          vertex2d  x            y           -- bottom left
-          vertex2d (x+cellSize)  y           -- bottom right
-
-          let ix'            = ix + 1
-              boundary       = ix' `mod` chunkWidth == 0
-              x' | boundary  = 0
-                 | otherwise = x + cellSize
-              y' | boundary  = y + cellSize
-                 | otherwise = y
-
-          renderLoop ix' x' y'
-  renderLoop 0 0 0
+          writeCell screen six (cells Vec.! ix)
+          let ix'           = ix + 1
+              boundary      = ix' `mod` chunkWidth == 0
+              six'
+                | boundary  = six + row
+                | otherwise = six + 1
+          blitLoop six' ix'
+  blitLoop off0 0
 
 simulateChunk :: Chunk -> IO ()
 simulateChunk c = do
@@ -343,3 +421,6 @@ simplePalette :: CellPalette Char
 simplePalette 0 = ' '
 simplePalette 1 = ';'
 simplePalette 2 = 'I'
+
+
+-- Lighting --------------------------------------------------------------------

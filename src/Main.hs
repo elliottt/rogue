@@ -8,6 +8,7 @@ import Tile
 import Time
 
 import Control.Monad
+import Control.Concurrent
 import Control.Concurrent.STM
 import System.Exit (exitSuccess)
 
@@ -46,8 +47,9 @@ main :: IO ()
 main  = do
   initGraphics "Rogue" 640 480
 
-  cm    <- initCaves
-  world <- atomically (newTVar emptyWorld)
+  cm     <- initCaves
+  world  <- atomically (newTVar emptyWorld)
+  screen <- newScreen
 
   withEventManager $ \ win -> do
 
@@ -75,15 +77,24 @@ main  = do
 
         _ -> return ()
 
-    win `listen` \ (TickEvent now _) -> do
-      clearScreen
-      withMatrix $ do
+    let loop d0 last = do
+          now <- getTicks
+          processEvents win
 
-        w <- atomically (readTVar world)
-        applyWorld w cm
+          w <- atomically (readTVar world)
+          applyWorld w cm
+          blitCaves cm screen
 
-        translate (0 :: GLfloat) 0 (-10)
-        renderCaves simpleTiles cm
-        updateScreen
+          let delta          = (now - last) + d0
+              d | delta > 50 = 0
+                | otherwise  = delta
 
-    eventLoop win
+          when (d == 0) $ withMatrix $ do
+            clearScreen
+            translate 0 0 (-6 :: GLfloat)
+            renderScreen simpleTiles cm screen
+            updateScreen
+
+          loop d now
+
+    loop 0 =<< getTicks

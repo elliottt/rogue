@@ -5,7 +5,7 @@
 
 module Event (
     -- * Events
-    eventLoop
+    processEvents
   , Event(..)
   , SomeEvent(..)
   , QuitEvent(..)
@@ -66,25 +66,22 @@ newEventManager  = atomically $ newTVar $ EventManager_
 -- | Listen to all events, firing handlers that apply.  This isn't the best way
 -- to report events, as it will cause tick events to lag when there are a lot of
 -- other events.
-eventLoop :: EventManager -> IO ()
-eventLoop em = do
-  let k :: Event e => e -> IO ()
-      k = fireEvent em . toEvent
-      loop last = do
-        now <- getTicks
-        e   <- SDL.pollEvent
-        let delta = now - last
-        case e of
-          SDL.Quit                  -> k QuitEvent
-          SDL.KeyUp sym             -> k (KeyUp sym)
-          SDL.KeyDown sym           -> k (KeyDown sym)
-          SDL.NoEvent               -> k (TickEvent now delta)
-          SDL.MouseMotion x y xr yr -> k (MouseMotion x y xr yr)
-          SDL.MouseButtonDown x y b -> k (MouseButtonDown x y b)
-          SDL.MouseButtonUp x y b   -> k (MouseButtonUp x y b)
-          _                         -> return ()
-        loop now
-  loop =<< getTicks
+processEvents :: EventManager -> IO ()
+processEvents em = loop
+  where
+  loop = do
+    e <- SDL.pollEvent
+    let k :: Event e => e -> IO ()
+        k e = fireEvent em (toEvent e) >> loop
+    case e of
+      SDL.Quit                  -> k QuitEvent
+      SDL.KeyUp sym             -> k (KeyUp sym)
+      SDL.KeyDown sym           -> k (KeyDown sym)
+      SDL.MouseMotion x y xr yr -> k (MouseMotion x y xr yr)
+      SDL.MouseButtonDown x y b -> k (MouseButtonDown x y b)
+      SDL.MouseButtonUp x y b   -> k (MouseButtonUp x y b)
+      SDL.NoEvent               -> return ()
+      _                         -> loop
 
 -- | Fire an event.
 fireEvent :: (HasEvents em, Event e) => em -> e -> IO ()
