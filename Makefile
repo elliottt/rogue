@@ -27,7 +27,7 @@ else
 	Q		=
 endif
 
-SLASH_MODS	= $(subst src/,,$(basename $(shell find src -name '*.hs')))
+SLASH_MODS	:= $(subst src/,,$(basename $(shell find src -name '*.hs')))
 
 HS_SOURCES	= $(addprefix src/,$(addsuffix .hs,$(SLASH_MODS)))
 HS_OBJS		= $(addprefix $(GHC_DIR)/,$(addsuffix .o,$(SLASH_MODS)))

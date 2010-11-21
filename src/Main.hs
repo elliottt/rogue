@@ -49,7 +49,6 @@ main  = do
 
   cm     <- initCaves
   world  <- atomically (newTVar emptyWorld)
-  screen <- newScreen
 
   withEventManager $ \ win -> do
 
@@ -81,9 +80,6 @@ main  = do
           now <- getTicks
           processEvents win
 
-          w <- atomically (readTVar world)
-          applyWorld w cm
-          blitCaves cm screen
 
           let delta          = (now - last) + d0
               d | delta > 50 = 0
@@ -92,9 +88,14 @@ main  = do
           when (d == 0) $ withMatrix $ do
             clearScreen
             translate 0 0 (-6 :: GLfloat)
-            renderScreen simpleTiles cm screen
+            renderCaves simpleTiles cm
             updateScreen
 
           loop d now
+
+    _ <- forkIO $ forever $ do
+      w <- atomically (readTVar world)
+      applyWorld w cm
+      threadDelay (10 * 1000)
 
     loop 0 =<< getTicks
