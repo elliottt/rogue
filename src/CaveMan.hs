@@ -121,9 +121,9 @@ chunkOffsets  = [ offset x y | y <- [0,1,2], x <- [2,1,0] ]
   where
   offset x y = x * chunkWidth + y * chunkHeight * chunkWidth * 3
 
+-- The world point (0,0) is the center of the (0,0) chunk.
 renderOrigin :: Player -> IO ()
 renderOrigin p = do
-  print p
   let rads = negate (vectorRads (playerDir p))
   rotate (radsToDegrees rads) 0 0 1
 
@@ -141,8 +141,19 @@ vectorRads v = atan2 0 1 - atan2 a b
 renderCaves :: CellPalette Tile -> CaveMan -> IO ()
 renderCaves pal cm = do
   renderPlayer
-  renderOrigin     =<< atomically (readTMVar (cavePlayer cm))
-  renderScreen pal =<< atomically (readTMVar (caveScreen cm))
+  p <- atomically (readTMVar (cavePlayer cm))
+  renderOrigin p
+  screen <- atomically (readTMVar (caveScreen cm))
+
+  pal <- renderLights screen p
+  renderScreen pal screen
+
+renderLights :: Screen -> Player -> IO (CellPalette Tile)
+renderLights screen p = do
+  let pos = playerScreenPosP p
+  ps <- fov screen pos 10
+  let int p = p `elem` ps
+  return (lightedTiles int)
 
 
 -- Player ----------------------------------------------------------------------
@@ -159,10 +170,10 @@ renderPlayer  = renderPrimitive Triangles $ do
   let vert a b = vertex2d (a :: GLfloat) b
   vert 0 0.1
   vert (-0.05) 0
-  vert 0 0.05
+  vert 0.05 0
 
 emptyPlayer = Player
-  { playerPos   = Point (chunkWidthF / 2) (chunkHeightF / 2)
+  { playerPos   = Point 0 0
   , playerDir   = Vector 0 1
   , playerChunk = (0,0)
   }
@@ -175,12 +186,23 @@ movePlayer move cm = do
   var =: p'
   when (playerChunk p /= playerChunk p') (blitCaves cm)
 
+-- | The offset into the current chunk.
+playerChunkPosP :: Player -> Point Int
+playerChunkPosP p = Point x' y'
+  where
+  Point x y = playerPos p
+  x'        = floor ((x+chunkWidthF2)  / cellSize) `mod` chunkWidth
+  y'        = floor (negate (y+chunkHeightF2) / cellSize) `mod` chunkHeight
+
+-- | The position of the player in the (1,1) chunk
 playerChunkPos :: Player -> (Int,Int)
 playerChunkPos p = (x,y)
   where
-  Point px py = playerPos p
-  x           = floor (px / cellSize) `mod` chunkWidth
-  y           = floor (py / cellSize) `mod` chunkHeight
+  Point x y = playerChunkPosP p
+
+-- | The player is always in the (1,1) chunk.
+playerScreenPosP :: Player -> Point Int
+playerScreenPosP p = playerChunkPosP p .+^ Vector chunkWidth chunkHeight
 
 -- | Enumerate the blocks that surround the player, starting from the top-left
 -- and ending in the bottom-right.
@@ -205,12 +227,12 @@ constrainPos p = p
   Point x y            = playerPos p
   (cx,cy)              = playerChunk p
   (cx', x')
-    | x > chunkWidthF  = (cx-1, x - chunkWidthF)
-    | x < 0            = (cx+1, x + chunkWidthF)
-    | otherwise        = (cx, x)
+    | x >  chunkWidthF2 = (cx-1, -chunkWidthF2)
+    | x < -chunkWidthF2 = (cx+1,  chunkWidthF2)
+    | otherwise         = (cx, x)
   (cy', y')
-    | y > chunkHeightF = (cy+1, y - chunkHeightF)
-    | y < 0            = (cy-1, y + chunkHeightF)
+    | y >  chunkHeightF2 = (cy+1, -chunkHeightF2)
+    | y < -chunkHeightF2 = (cy-1,  chunkHeightF2)
     | otherwise        = (cy,y)
 
 type Movement = Player -> Player

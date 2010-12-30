@@ -14,17 +14,11 @@ CFLAGS	= $(shell sdl-config --cflags)
 LDFLAGS	= $(shell sdl-config --ldflags)
 
 ifeq ($(V),)
-	QUIET_CC	= @echo "  CC     $@";
-	QUIET_GHC	= @echo "  GHC    $@";
-	QUIET_CLEAN	= @echo "  CLEAN  $(subst clean-,,$@)";
-	QUIET_DEPEND	= @echo "  DEPEND $@";
-	Q		= @
+	cmd	= @echo -e "  $1\t$@"; $($1)
+	Q	= @
 else
-	QUIET_CC	=
-	QUIET_GHC	=
-	QUIET_CLEAN	=
-	QUIET_DEPEND	=
-	Q		=
+	cmd	= $($1)
+	Q	=
 endif
 
 SLASH_MODS	:= $(subst src/,,$(basename $(shell find src -name '*.hs')))
@@ -39,10 +33,10 @@ HS_LIBS		= -package OpenGL -package containers -package SDL \
 all: test
 
 test: cbits/sdl-opengl.o $(HS_OBJS)
-	$(QUIET_GHC) $(GHC) $(HSFLAGS) -threaded $(HS_LIBS) -o $@ $^
+	$(call cmd,GHC) $(HSFLAGS) -threaded $(HS_LIBS) -o $@ $^
 
 cbits/sdl-opengl.o: cbits/sdl-opengl.c
-	$(QUIET_CC) $(CC) $(CFLAGS) -c $< -o $@
+	$(call cmd,CC) $(CFLAGS) -c $< -o $@
 
 ghci: $(GHC_DIR) $(HS_OBJS)
 	$(GHC) --interactive -lGL -lSDL cbits/sdl-opengl.o -isrc
@@ -53,10 +47,10 @@ $(GHC_DIR):
 -include $(GHC_DIR)/depend
 
 $(GHC_DIR)/depend: $(GHC_DIR)
-	$(QUIET_DEPEND) $(GHC) -M -dep-makefile $@ $(HS_SOURCES)
+	$(Q) $(GHC) -M -dep-makefile $@ $(HS_SOURCES)
 
 $(GHC_DIR)/%.o: src/%.hs
-	$(QUIET_GHC) $(GHC) $(HSFLAGS) -c $<
+	$(call cmd,GHC) $(HSFLAGS) -c $<
 
 %.hi : %.o ;
 
@@ -64,7 +58,7 @@ clean: clean-cbits clean-$(GHC_DIR)
 	$(Q) $(RM) test
 
 clean-cbits:
-	$(QUIET_CLEAN) $(RM) cbits/sdl-opengl.o
+	$(call cmd,RM) cbits/sdl-opengl.o
 
 clean-$(GHC_DIR):
-	$(QUIET_CLEAN) $(RM) -r $(GHC_DIR)
+	$(call cmd,RM) -r $(GHC_DIR)

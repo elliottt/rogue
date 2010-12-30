@@ -1,13 +1,14 @@
 module Cells where
 
 import Constants
+import Math.AffinePlane (Point)
 
 import System.Random (StdGen,randomRs)
 
 
 -- Cells -----------------------------------------------------------------------
 
-type CellPalette a = Int -> a
+type CellPalette a = Point Int -> Int -> a
 
 newtype Cell = Cell Int
     deriving (Show,Eq)
@@ -28,5 +29,5 @@ rockCell  = Cell 1
 ironCell :: Cell
 ironCell  = Cell 2
 
-fmtCell :: CellPalette a -> Cell -> a
-fmtCell p (Cell i) = p i
+fmtCell :: CellPalette a -> Point Int -> Cell -> a
+fmtCell p pos (Cell i) = p pos i

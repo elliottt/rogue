@@ -12,6 +12,9 @@ instance HasZero a => HasZero (Point a) where
   zero               = Point zero zero
   isZero (Point x y) = isZero x && isZero y
 
+instance Functor Point where
+  fmap f (Point x y) = Point (f x) (f y)
+
 distance :: Floating a => Point a -> Point a -> a
 distance a b = norm (a -. b)
 
@@ -94,6 +97,17 @@ unitV v
   | otherwise = (1 / norm v) *^ v
   where
   n = norm v
+
+-- | Rotate a vector by the given angle (in radians)
+rotV :: Floating a => Vector a -> a -> Vector a
+rotV (Vector a b) theta = Vector a' b'
+  where
+  ct = cos theta
+  st = sin theta
+  a' = ct * a - st * b
+  b' = st * a + ct * b
+{-# INLINE rotV #-}
+{-# SPECIALIZE rotV :: Vector GLfloat -> GLfloat -> Vector GLfloat #-}
 
 
 -- Affine Transformations ------------------------------------------------------

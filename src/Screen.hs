@@ -3,6 +3,7 @@ module Screen where
 import Cells
 import Constants
 import Graphics
+import Math.AffinePlane
 import Tile
 
 import Control.Monad.Primitive (PrimState)
@@ -27,49 +28,53 @@ writeCell (Screen mv) = MVec.write mv
 readCell :: Screen -> Int -> IO Cell
 readCell (Screen mv) = MVec.read mv
 
-renderScreen :: CellPalette Tile -> Screen -> IO ()
-renderScreen pal screen = withMatrix $ do
+pointIndex :: Point Int -> Int
+pointIndex (Point x y) = x + y * screenWidth
 
-  putStrLn "render"
+renderScreen :: CellPalette Tile -> Screen -> IO ()
+renderScreen pal screen = do
+
   renderPrimitive Lines $ do
     color3 1 1 1
-    vertex2d (-screenX) chunkHeightF
-    vertex2d   screenX  chunkHeightF
+    -- top
+    vertex2d (-screenX) chunkHeightF2
+    vertex2d   screenX  chunkHeightF2
 
-    vertex2d (-screenX) 0
-    vertex2d   screenX  0
+    -- bottom
+    vertex2d (-screenX) (-chunkHeightF2)
+    vertex2d   screenX  (-chunkHeightF2)
 
-    vertex2d 0 (-screenY)
-    vertex2d 0   screenY
+    -- left
+    vertex2d (-chunkWidthF2) (-screenY)
+    vertex2d (-chunkWidthF2)   screenY
 
-    vertex2d   chunkWidthF (-screenY)
-    vertex2d   chunkWidthF   screenY
+    -- right
+    vertex2d chunkWidthF2 (-screenY)
+    vertex2d chunkWidthF2   screenY
 
   -- render the cells, after translating out based on the center of the map
-  let loop i x y
+  let loop i px py x y
         | i == screenSize = return ()
         | otherwise       = do
           cell <- readCell screen i
 
-          setTile (fmtCell pal cell)
-          vertex2d (x+cellSize) (y+cellSize) -- top right
-          vertex2d  x           (y+cellSize) -- top left
+          setTile (fmtCell pal (Point px py) cell)
+          vertex2d (x+cellSize) (y-cellSize) -- top right
+          vertex2d  x           (y-cellSize) -- top left
           vertex2d  x            y           -- bottom left
           vertex2d (x+cellSize)  y           -- bottom right
 
           let i'             = i + 1
               boundary       = i' `mod` screenWidth == 0
-              x' | boundary  = -chunkWidthF
-                 | otherwise = x + cellSize
-              y' | boundary  = y - cellSize
-                 | otherwise = y
+              (px',x') | boundary  = (0,-screenX)
+                       | otherwise = (px+1,x + cellSize)
+              (py',y') | boundary  = (py+1, y - cellSize)
+                       | otherwise = (py,y)
 
-          loop i' x' y'
+          loop i' px' py' x' y'
 
-  renderPrimitive Quads (loop 0 (-chunkWidthF) (chunkHeightF * 2))
+  renderPrimitive Quads (loop 0 0 0 (negate screenX) screenY)
 
-screenX     = negate (fromIntegral chunkWidth  * cellSize * 1.5)
 screenWidth = chunkWidth * 3
-screenY     = negate (fromIntegral chunkHeight * cellSize * 1.5)
-
-
+screenX     = chunkWidthF * 1.5
+screenY     = chunkHeightF * 1.5

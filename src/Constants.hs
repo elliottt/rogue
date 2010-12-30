@@ -8,11 +8,17 @@ chunkWidth  = 64
 chunkWidthF :: GLfloat
 chunkWidthF  = fromIntegral chunkWidth * cellSize
 
+chunkWidthF2 :: GLfloat
+chunkWidthF2  = chunkWidthF / 2
+
 chunkHeight :: Int
 chunkHeight  = 64
 
 chunkHeightF :: GLfloat
 chunkHeightF  = fromIntegral chunkHeight * cellSize
+
+chunkHeightF2 :: GLfloat
+chunkHeightF2  = chunkHeightF / 2
 
 chunkLen :: Int
 chunkLen  = chunkWidth * chunkHeight
