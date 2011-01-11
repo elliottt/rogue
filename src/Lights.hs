@@ -8,9 +8,11 @@ import Tile
 
 import Control.Monad (forM_,when)
 import Control.Monad.Primitive (PrimState)
+import Data.Function (on)
 import Data.List (nub)
 import Data.Maybe (catMaybes)
 import qualified Data.Map            as Map
+import qualified Data.Set            as Set
 import qualified Data.Vector         as Vec
 import qualified Data.Vector.Mutable as MVec
 
@@ -21,6 +23,14 @@ data Light = Light
   , lightStrength :: !Int
   } deriving (Show,Eq)
 
+data Lighted a = Lighted
+  { lightedData      :: a
+  , lightedIntensity :: Int
+  } deriving (Eq,Show)
+
+instance Ord a => Ord (Lighted a) where
+  compare = compare `on` lightedData
+
 -- | A mapping from position to lights.
 type Lights = Map.Map (Int,Int) Light
 
@@ -30,16 +40,17 @@ type Iterations = Int
 -- iterations, returning the intersected cell, if one exists.  Lifetime decays
 -- by one for each step taken.
 castRay :: Screen -> Point Int -> Vector GLfloat -> Iterations
-        -> IO (Maybe (Point Int))
-castRay screen p0 dir is = loop (move (fromIntegral `fmap` p0)) is
+        -> IO (Set.Set (Lighted (Point Int)))
+castRay screen p0 dir is = loop Set.empty (move (fromIntegral `fmap` p0)) is
   where
   move p   = p .+^ dir
-  loop p 0 = return Nothing
-  loop p i = do
-    cell <- readCell screen (pointIndex (fmap round p))
-    if cell == floorCell
-       then loop (move p) (i-1)
-       else return (Just (fmap round p))
+  loop ps p 0 = return ps
+  loop ps p i = do
+    let p' = fmap round p
+    cell <- readCell screen (pointIndex p')
+    let i' | cell == floorCell = i - 1
+           | otherwise         = 0
+    loop (Set.insert (Lighted p' i) ps) (move p) i'
 
 fovGranularity :: Int
 fovGranularity  = 180
@@ -57,16 +68,13 @@ fovAngles  = Vec.fromList (map fovAngle (take fovGranularity [0, fovStep ..]))
 
 -- | Cast a field of view from the given point, stepping n iterations from that
 -- point.
-fov :: Screen -> Point Int -> Iterations -> IO [Point Int]
-fov screen p0 it = do loop fovIndexes
+fov :: Screen -> Point Int -> Iterations -> IO (Set.Set (Lighted (Point Int)))
+fov screen p0 it = loop fovIndexes
   where
   loop ix
-    | ix < 0    = return []
+    | ix < 0    = return Set.empty
     | otherwise = do
       let angle = fovAngles Vec.! ix
-      mb   <- castRay screen p0 angle it
+      ps   <- castRay screen p0 angle it
       rest <- loop (ix - 1)
-      case mb of
-        Nothing                -> return rest
-        Just x | x `elem` rest -> return rest
-               | otherwise     -> return (x:rest)
+      return (Set.union ps rest)

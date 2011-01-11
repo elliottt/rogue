@@ -15,6 +15,7 @@ import Control.Monad
 import Control.Monad.Primitive (PrimState)
 import Control.Concurrent
 import Control.Concurrent.STM
+import Data.List (find)
 import Data.Maybe
 import System.Random
 import qualified Data.Map            as Map
@@ -152,7 +153,8 @@ renderLights :: Screen -> Player -> IO (CellPalette Tile)
 renderLights screen p = do
   let pos = playerScreenPosP p
   ps <- fov screen pos 10
-  let int p = p `elem` ps
+  let ps'   = Set.toList ps
+  let int p = maybe 0 lightedIntensity (find (\l -> lightedData l == p) ps')
   return (lightedTiles int)
 
 
