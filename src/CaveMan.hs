@@ -9,6 +9,7 @@ import Math.AffinePlane
 import Math.Utils
 import Screen
 import Tile
+import Types
 
 import Control.Applicative
 import Control.Monad
@@ -146,16 +147,9 @@ renderCaves pal cm = do
   renderOrigin p
   screen <- atomically (readTMVar (caveScreen cm))
 
-  pal <- renderLights screen p
-  renderScreen pal screen
-
-renderLights :: Screen -> Player -> IO (CellPalette Tile)
-renderLights screen p = do
   let pos = playerScreenPosP p
-  ps <- fov screen pos 10
-  let ps'   = Set.toList ps
-  let int p = maybe 0 lightedIntensity (find (\l -> lightedData l == p) ps')
-  return (lightedTiles int)
+  cells <- fov screen pos 10
+  renderPrimitive Quads (renderScreenPoints screen (Set.toList cells))
 
 
 -- Player ----------------------------------------------------------------------

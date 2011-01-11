@@ -5,6 +5,7 @@ import Math.AffinePlane
 import Math.Utils
 import Screen
 import Tile
+import Types
 
 import Control.Monad (forM_,when)
 import Control.Monad.Primitive (PrimState)
@@ -22,14 +23,6 @@ data Light = Light
   { lightRadius   :: !Int
   , lightStrength :: !Int
   } deriving (Show,Eq)
-
-data Lighted a = Lighted
-  { lightedData      :: a
-  , lightedIntensity :: Int
-  } deriving (Eq,Show)
-
-instance Ord a => Ord (Lighted a) where
-  compare = compare `on` lightedData
 
 -- | A mapping from position to lights.
 type Lights = Map.Map (Int,Int) Light
@@ -50,7 +43,7 @@ castRay screen p0 dir is = loop Set.empty (move (fromIntegral `fmap` p0)) is
     cell <- readCell screen (pointIndex p')
     let i' | cell == floorCell = i - 1
            | otherwise         = 0
-    loop (Set.insert (Lighted p' i) ps) (move p) i'
+    loop (Set.insert (Lighted i p') ps) (move p) i'
 
 fovGranularity :: Int
 fovGranularity  = 180
@@ -72,7 +65,7 @@ fov :: Screen -> Point Int -> Iterations -> IO (Set.Set (Lighted (Point Int)))
 fov screen p0 it = loop fovIndexes
   where
   loop ix
-    | ix < 0    = return Set.empty
+    | ix < 0    = return (Set.singleton (Lighted it p0))
     | otherwise = do
       let angle = fovAngles Vec.! ix
       ps   <- castRay screen p0 angle it
