@@ -46,7 +46,4 @@ init ival = c_init (getInit ival)
 
 -- Quit ------------------------------------------------------------------------
 
-foreign import ccall unsafe "SDL_Quit" c_quit :: IO ()
-
-quit :: IO ()
-quit  = c_quit
+foreign import ccall unsafe "SDL_Quit" quit :: IO ()

@@ -7,11 +7,16 @@ module SDL (
   , quit
 
     -- * Video
+
+    -- ** Windowing
   , createWindow, WindowPos(..)
   , WindowFlags(), windowFullscreen, windowOpenGL, windowShown, windowHidden
                  , windowBorderless, windowResizable, windowMinimized
                  , windowMaximized, windowInputGrabbed, windowInputFocus
                  , windowMouseFocus, windowForeign
+
+    -- ** Screen Saver
+  , disableScreenSaver, enableScreenSaver
   ) where
 
 import Prelude hiding (init)

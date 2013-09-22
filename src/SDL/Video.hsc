@@ -77,7 +77,7 @@ data WindowPos = WindowPos Int Int
 
 newtype Window = Window { getWindow :: ForeignPtr () }
 
-foreign import ccall "SDL_CreateWindow"
+foreign import ccall unsafe "SDL_CreateWindow"
   c_createWindow :: CString -> CInt -> CInt -> CInt -> CInt -> CUInt
                  -> IO (Ptr ())
 
@@ -85,11 +85,10 @@ foreign import ccall "SDL_CreateWindow"
 createWindow :: String -> WindowPos -> Int -> Int -> WindowFlags -> IO Window
 createWindow title pos width height flags = do
   win_ptr <- withCString title $ \ p_title ->
-                 c_createWindow p_title x y
-                     (toEnum width) (toEnum height) (getWindowFlags flags)
+      c_createWindow p_title x y (toEnum width) (toEnum height)
+          (getWindowFlags flags)
 
-  when (win_ptr == nullPtr)
-      (X.throwIO CreateWindowFailed)
+  when (win_ptr == nullPtr) (X.throwIO CreateWindowFailed)
 
   Window `fmap` newForeignPtr c_destroyWindowPtr win_ptr
   where
@@ -103,8 +102,17 @@ createWindow title pos width height flags = do
 
 -- Destroy Window --------------------------------------------------------------
 
-foreign import ccall "&SDL_DestroyWindow"
+foreign import ccall unsafe "&SDL_DestroyWindow"
   c_destroyWindowPtr :: FunPtr (Ptr () -> IO ())
 
 destroyWindow :: Window -> IO ()
 destroyWindow win = finalizeForeignPtr (getWindow win)
+
+
+-- Screen Saver ----------------------------------------------------------------
+
+foreign import ccall unsafe "SDL_DisableScreenSaver"
+  disableScreenSaver :: IO ()
+
+foreign import ccall unsafe "SDL_EnableScreenSaver"
+  enableScreenSaver :: IO ()

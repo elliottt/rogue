@@ -2,7 +2,5 @@
 
 cat > rogue.buildinfo <<EOF
 cc-options:     `sdl2-config --cflags`
-ld-options:     `sdl2-config --ldflags`
-extra-libraries: SDL
-extra-lib-dirs:  `sdl2-config --prefix`/lib
+ld-options:     `sdl2-config --libs`
 EOF
