@@ -4,17 +4,25 @@ import qualified SDL
 
 import Control.Concurrent (threadDelay)
 import Data.Monoid
-import qualified Control.Exception as X
 
 main :: IO ()
-main  = body `X.finally` SDL.quit
-  where
-  body = do
-    putStrLn "INIT"
-    SDL.init SDL.initVideo
+main  = SDL.withSDL SDL.initVideo $ do
 
-    putStrLn "VIDEO"
-    win <- SDL.createWindow "rogue" (SDL.WindowPos 0 0) 640 480 mempty
+  putStrLn "VIDEO"
+  win <- SDL.createWindow "rogue" (SDL.WindowPos 0 0) 640 480 SDL.windowOpenGL
+  cxt <- SDL.gl_createContext win
 
-    putStrLn "DELAY"
-    threadDelay 5000000
+  putStrLn "DELAY"
+  let loop = do evt <- SDL.pollEvent
+                case evt of
+                  Just SDL.Quit ->
+                    return ()
+
+                  Just (SDL.WindowEvent e) ->
+                    print e >> loop
+
+                  _ -> threadDelay 1000 >> loop
+
+  loop
+
+  SDL.destroyWindow win

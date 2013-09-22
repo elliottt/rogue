@@ -2,9 +2,12 @@
 
 module SDL.Init where
 
+import Prelude hiding (init)
+
 import Data.Bits ((.|.))
 import Data.Monoid (Monoid(..))
 import Foreign.C.Types ( CUInt(..) )
+import qualified Control.Exception as X
 
 #include <SDL.h>
 
@@ -42,6 +45,9 @@ initEverything  = Init (#const SDL_INIT_EVERYTHING)
 
 init :: Init -> IO ()
 init ival = c_init (getInit ival)
+
+withSDL :: Init -> IO () -> IO ()
+withSDL flags body = X.bracket (init flags) (const quit) (const body)
 
 
 -- Quit ------------------------------------------------------------------------

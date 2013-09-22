@@ -11,7 +11,7 @@ import Foreign.C.Types ( CUInt(..), CInt(..) )
 import Foreign.C.String ( CString, withCString )
 import Foreign.Ptr ( FunPtr(..), Ptr(..), nullPtr )
 import Foreign.ForeignPtr.Safe
-    ( ForeignPtr(), newForeignPtr, finalizeForeignPtr )
+    ( ForeignPtr(), newForeignPtr, finalizeForeignPtr, withForeignPtr )
 import qualified Control.Exception as X
 
 #include <SDL.h>
@@ -20,6 +20,7 @@ import qualified Control.Exception as X
 -- Errors ----------------------------------------------------------------------
 
 data VideoException = CreateWindowFailed
+                    | CreateContextFailed
                       deriving (Show,Typeable)
 
 instance X.Exception VideoException
@@ -116,3 +117,23 @@ foreign import ccall unsafe "SDL_DisableScreenSaver"
 
 foreign import ccall unsafe "SDL_EnableScreenSaver"
   enableScreenSaver :: IO ()
+
+
+-- Open GL Context -------------------------------------------------------------
+
+newtype GLContext = GLContext { getGLContext :: ForeignPtr () }
+
+foreign import ccall unsafe "SDL_GL_CreateContext"
+  c_gl_createContext :: Ptr () -> IO (Ptr ())
+
+gl_createContext :: Window -> IO GLContext
+gl_createContext win = withForeignPtr (getWindow win) $ \ p_win -> do
+  p_cxt <- c_gl_createContext p_win
+  when (p_cxt == nullPtr) (X.throwIO CreateContextFailed)
+  GLContext `fmap` newForeignPtr c_gl_deleteContext p_cxt
+
+foreign import ccall unsafe "&SDL_GL_DeleteContext"
+  c_gl_deleteContext :: FunPtr (Ptr () -> IO ())
+
+gl_deleteContext :: GLContext -> IO ()
+gl_deleteContext cxt = finalizeForeignPtr (getGLContext cxt)
