@@ -15,10 +15,13 @@ main  = SDL.withSDL SDL.initVideo $ do
   putStrLn "DELAY"
   let loop = do evt <- SDL.pollEvent
                 case evt of
-                  Just SDL.Quit ->
+                  SDL.Quit ->
                     return ()
 
-                  Just (SDL.WindowEvent e) ->
+                  SDL.KeyEvent ke ->
+                    print ke >> loop
+
+                  SDL.WindowEvent e ->
                     print e >> loop
 
                   _ -> threadDelay 1000 >> loop
