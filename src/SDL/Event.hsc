@@ -7,6 +7,7 @@ import Data.Int ( Int32(..) )
 import Data.Word ( Word8(..) )
 import Foreign.C.Types ( CInt(..), CUInt(..) )
 import Foreign.Marshal.Alloc ( allocaBytes )
+import Foreign.Marshal.Array ( allocaArray, copyArray, peekArray )
 import Foreign.Ptr ( Ptr(..), plusPtr )
 import Foreign.Storable ( peekByteOff )
 import Numeric ( showHex )
@@ -46,6 +47,9 @@ data KeySym = KeyUnknown
             | KeyChar Char
               deriving (Show)
 
+
+-- Event Processing ------------------------------------------------------------
+
 peekEvent :: Ptr Event -> IO Event
 peekEvent ptr = do
   tag <- (#peek SDL_Event, type) ptr
@@ -62,8 +66,8 @@ peekEvent ptr = do
     (#const SDL_WINDOWEVENT) ->
       peekWindowEvent ((#ptr SDL_Event, window) ptr)
 
-    _ -> do putStrLn ("Not handling: 0x" ++ showHex tag "")
-            return NoEvent
+    -- XXX finish up the rest of the events at some point
+    _ -> return NoEvent
 
 
 peekKeyEvent :: (Bool -> KeySym -> KeyEvent) -> Ptr () -> IO KeyEvent
