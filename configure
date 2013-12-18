@@ -1,6 +1,0 @@
-#!/bin/sh
-
-cat > rogue.buildinfo <<EOF
-cc-options:     `sdl2-config --cflags`
-ld-options:     `sdl2-config --libs`
-EOF
