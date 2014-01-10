@@ -1,15 +1,19 @@
 module Main where
 
+import           Control.Applicative ( (<|>) )
 import           Control.Concurrent ( forkIO )
 import           Control.Concurrent.STM
                      ( atomically, TChan, newTChan, tryReadTChan, writeTChan )
-import           Control.Monad ( forever, when )
-import           Data.Array ( Array, array, (!) )
+import           Control.Monad ( forever, when, guard, mplus )
+import           Data.Array ( Array, listArray, (!) )
 import           Data.Array.IO
                      ( IOUArray, getBounds, newListArray, readArray
                      , writeArray, inRange )
+import           Data.Foldable ( fold )
 import           Data.List ( transpose )
-import           Data.Maybe ( isJust )
+import qualified Data.Map as Map
+import           Data.Maybe ( isJust, mapMaybe, listToMaybe, maybeToList )
+import           Data.Monoid ( Monoid(..) )
 import qualified Graphics.Vty as Vty
 
 main :: IO ()
@@ -121,11 +125,11 @@ type Tile = Int
 type Map = IOUArray (Int,Int) Tile
 
 palette :: Array Tile Vty.Image
-palette  = array (0, 3)
-  [ (0, Vty.char Vty.def_attr ' ')
-  , (1, Vty.char Vty.def_attr '#')
-  , (2, Vty.char Vty.def_attr '>')
-  , (3, Vty.char Vty.def_attr '<') ]
+palette  = listArray (0, 3)
+  [ Vty.char Vty.def_attr ' '
+  , Vty.char Vty.def_attr '#'
+  , Vty.char Vty.def_attr '>'
+  , Vty.char Vty.def_attr '<' ]
 
 passable :: Tile -> Bool
 passable t = t /= 1
@@ -144,6 +148,19 @@ newMap  = newListArray ( (0,0), (9,9) ) $ concat $ transpose
   , [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ] ]
 
 
+type Neighbors = Array (Int,Int) Tile
+
+neighbors :: Map -> (Int,Int) -> IO Neighbors
+neighbors m cell@(x,y) =
+  do bounds <- getBounds m
+     let readCells = do a <- [ x - 1, x, x + 1 ]
+                        b <- [ y - 1, y, y + 1 ]
+                        let coord = (a,b)
+                        if inRange bounds coord
+                           then return (readArray m coord)
+                           else return (return 0)
+     listArray ((0,0),(2,2)) `fmap` sequence readCells
+
 
 drawWorld :: World -> IO Vty.Image
 drawWorld w =
@@ -156,5 +173,61 @@ drawWorld w =
     where
     check                          = y == pY p
     getTile x | check && x == pX p = return (Vty.char Vty.def_attr '@')
-              | otherwise          = do i <- readArray m (x,y)
-                                        return (palette ! i)
+              | otherwise          = do ns <- neighbors m (x,y)
+                                        return (pickTile ns)
+
+
+pickTile :: Neighbors -> Vty.Image
+pickTile ns = case ns ! (1,1) of
+  -- wall special cases
+  1 | Just i <- lookupPat (wallQuad ns) walls -> i
+  cell                                        -> palette ! cell
+
+wallQuad :: Neighbors -> [Tile]
+wallQuad ns = [ ns ! (1,0), ns ! (2,1), ns ! (1,2), ns ! (0,1) ]
+
+walls :: PatTrie Vty.Image
+walls  = fold
+  [ patCase [ Exact 1, Exact 1, Exact 1, Exact 1 ] (c '#')
+  , patCase [ Any,     Exact 1, Any    , Exact 1 ] (c '─')
+  , patCase [ Exact 1, Any,     Exact 1          ] (c '│')
+
+  , patCase [ Exact 1, Exact 1                   ] (c '└')
+  , patCase [ Any    , Exact 1, Exact 1          ] (c '┌')
+  , patCase [ Any    , Any    , Exact 1, Exact 1 ] (c '┐')
+  , patCase [ Exact 1, Any    , Any    , Exact 1 ] (c '┘')
+
+  , patCase [                                    ] (c '+')
+  ]
+  where
+  c = Vty.char Vty.def_attr
+
+
+data Pat = Exact Tile | Any deriving (Show,Eq,Ord)
+
+data PatTrie a = PatTrie (Map.Map Pat (PatTrie a)) (Maybe a) deriving (Show)
+
+instance Monoid (PatTrie a) where
+  mempty                                = PatTrie Map.empty Nothing
+  mappend (PatTrie as a) (PatTrie bs b) =
+    PatTrie (Map.unionWith mappend as bs) (a <|> b)
+
+patCase :: [Pat] -> a -> PatTrie a
+patCase key i = go key
+  where
+  go ps = case ps of
+    p:rest -> PatTrie (Map.singleton p (go rest)) Nothing
+    []     -> PatTrie Map.empty (Just i)
+
+lookupPat :: [Tile] -> PatTrie a -> Maybe a
+lookupPat ps pats = listToMaybe (patChoices ps pats)
+
+patChoices :: [Tile] -> PatTrie a -> [a]
+patChoices ps (PatTrie m mb) = case ps of
+
+  p:rest ->
+    case Map.lookup (Exact p) m `mplus` Map.lookup Any m of
+      Just pats -> patChoices rest pats ++ maybeToList mb
+      Nothing   -> maybeToList mb
+
+  [] -> maybeToList mb

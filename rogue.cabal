@@ -18,7 +18,10 @@ library
   build-depends:       base >=4.6 && <5,
                        array,
                        random,
-                       monadLib
+                       monadLib,
+                       vty,
+                       containers,
+                       stm
 
 executable rogue
   main-is:             Main.hs
@@ -26,6 +29,7 @@ executable rogue
                        vty >= 4.7.3,
                        stm >= 2.4.2,
                        array,
+                       containers,
                        rogue
   hs-source-dirs:      rogue
   default-language:    Haskell2010
