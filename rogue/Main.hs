@@ -137,14 +137,14 @@ passable t = t /= 1
 newMap :: IO Map
 newMap  = newListArray ( (0,0), (9,9) ) $ concat $ transpose
   [ [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ]
-  , [ 1, 0, 0, 0, 3, 0, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 2, 0, 0, 0, 0, 1 ]
+  , [ 1, 0, 0, 0, 3, 1, 1, 1, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 1, 1, 1, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 0, 1, 1, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 0, 1, 0, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 0, 1, 0, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 0, 1, 1, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 1, 1, 1, 0, 1 ]
+  , [ 1, 0, 0, 0, 2, 1, 1, 1, 0, 1 ]
   , [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ] ]
 
 
@@ -188,7 +188,8 @@ wallQuad ns = [ ns ! (1,0), ns ! (2,1), ns ! (1,2), ns ! (0,1) ]
 
 walls :: PatTrie Vty.Image
 walls  = fold
-  [ patCase [ Exact 1, Exact 1, Exact 1, Exact 1 ] (c '#')
+  [ patCase [ Exact 1, Exact 1, Exact 1, Exact 1 ] (c '┼')
+
   , patCase [ Any,     Exact 1, Any    , Exact 1 ] (c '─')
   , patCase [ Exact 1, Any,     Exact 1          ] (c '│')
 
@@ -196,6 +197,11 @@ walls  = fold
   , patCase [ Any    , Exact 1, Exact 1          ] (c '┌')
   , patCase [ Any    , Any    , Exact 1, Exact 1 ] (c '┐')
   , patCase [ Exact 1, Any    , Any    , Exact 1 ] (c '┘')
+
+  , patCase [ Exact 1, Exact 1, Exact 1          ] (c '├')
+  , patCase [ Exact 1, Any    , Exact 1, Exact 1 ] (c '┤')
+  , patCase [ Any    , Exact 1, Exact 1, Exact 1 ] (c '┬')
+  , patCase [ Exact 1, Exact 1, Any    , Exact 1 ] (c '┴')
 
   , patCase [                                    ] (c '+')
   ]
