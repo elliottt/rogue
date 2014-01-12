@@ -70,7 +70,7 @@ processEvents vty =
 
 handleEvent :: Vty.Event -> Maybe Event
 handleEvent evt = case evt of
-  Vty.EvKey  Vty.KEsc        [] -> Just Quit
+  Vty.EvKey (Vty.KASCII 'q') [] -> Just Quit
   Vty.EvKey (Vty.KASCII 'h') [] -> Just MoveLeft
   Vty.EvKey (Vty.KASCII 'l') [] -> Just MoveRight
   Vty.EvKey (Vty.KASCII 'k') [] -> Just MoveUp
@@ -124,13 +124,6 @@ type Tile = Int
 
 type Map = IOUArray (Int,Int) Tile
 
-palette :: Array Tile Vty.Image
-palette  = listArray (0, 3)
-  [ Vty.char Vty.def_attr ' '
-  , Vty.char Vty.def_attr '#'
-  , Vty.char Vty.def_attr '>'
-  , Vty.char Vty.def_attr '<' ]
-
 passable :: Tile -> Bool
 passable t = t /= 1
 
@@ -138,28 +131,23 @@ newMap :: IO Map
 newMap  = newListArray ( (0,0), (9,9) ) $ concat $ transpose
   [ [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ]
   , [ 1, 0, 0, 0, 3, 1, 1, 1, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 0, 0, 1, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 0, 0, 1, 0, 1 ]
+  , [ 1, 0, 0, 1, 1, 1, 0, 0, 0, 1 ]
+  , [ 1, 0, 0, 1, 3, 1, 0, 0, 0, 1 ]
+  , [ 1, 0, 0, 1, 0, 1, 0, 1, 0, 1 ]
+  , [ 1, 0, 0, 0, 0, 0, 0, 1, 0, 1 ]
   , [ 1, 0, 0, 0, 0, 1, 1, 1, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 1, 1, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 1, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 1, 0, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 1, 1, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 1, 1, 1, 0, 1 ]
-  , [ 1, 0, 0, 0, 2, 1, 1, 1, 0, 1 ]
   , [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ] ]
 
 
-type Neighbors = Array (Int,Int) Tile
-
-neighbors :: Map -> (Int,Int) -> IO Neighbors
+neighbors :: Map -> (Int,Int) -> IO [Tile]
 neighbors m cell@(x,y) =
   do bounds <- getBounds m
-     let readCells = do a <- [ x - 1, x, x + 1 ]
-                        b <- [ y - 1, y, y + 1 ]
-                        let coord = (a,b)
-                        if inRange bounds coord
-                           then return (readArray m coord)
-                           else return (return 0)
-     listArray ((0,0),(2,2)) `fmap` sequence readCells
+     sequence $ do coord <- [ (x,y), (x,y-1), (x+1,y), (x,y+1), (x-1,y) ]
+                   if inRange bounds coord
+                      then return (readArray m coord)
+                      else return (return 0)
 
 
 drawWorld :: World -> IO Vty.Image
@@ -177,33 +165,42 @@ drawWorld w =
                                         return (pickTile ns)
 
 
-pickTile :: Neighbors -> Vty.Image
-pickTile ns = case ns ! (1,1) of
-  -- wall special cases
-  1 | Just i <- lookupPat (wallQuad ns) walls -> i
-  cell                                        -> palette ! cell
+pickTile :: [Tile] -> Vty.Image
+pickTile ns = case lookupPat ns palette of
+  Just i -> i
+  _      -> error "Invalid tile"
 
-wallQuad :: Neighbors -> [Tile]
-wallQuad ns = [ ns ! (1,0), ns ! (2,1), ns ! (1,2), ns ! (0,1) ]
+palette :: PatTrie Vty.Image
+palette  = fold
+    -- lots of special cases for walls
+  [ patCase [ Exact 1, Exact 1, Exact 1, Exact 1, Exact 1 ] (c '┼')
 
-walls :: PatTrie Vty.Image
-walls  = fold
-  [ patCase [ Exact 1, Exact 1, Exact 1, Exact 1 ] (c '┼')
+  , patCase [ Exact 1, Any,     Exact 1, Any    , Exact 1 ] (c '─')
+  , patCase [ Exact 1, Exact 1, Any,     Exact 1          ] (c '│')
 
-  , patCase [ Any,     Exact 1, Any    , Exact 1 ] (c '─')
-  , patCase [ Exact 1, Any,     Exact 1          ] (c '│')
+  , patCase [ Exact 1, Exact 1, Exact 1                   ] (c '└')
+  , patCase [ Exact 1, Any    , Exact 1, Exact 1          ] (c '┌')
+  , patCase [ Exact 1, Any    , Any    , Exact 1, Exact 1 ] (c '┐')
+  , patCase [ Exact 1, Exact 1, Any    , Any    , Exact 1 ] (c '┘')
 
-  , patCase [ Exact 1, Exact 1                   ] (c '└')
-  , patCase [ Any    , Exact 1, Exact 1          ] (c '┌')
-  , patCase [ Any    , Any    , Exact 1, Exact 1 ] (c '┐')
-  , patCase [ Exact 1, Any    , Any    , Exact 1 ] (c '┘')
+  , patCase [ Exact 1, Exact 1, Exact 1, Exact 1          ] (c '├')
+  , patCase [ Exact 1, Exact 1, Any    , Exact 1, Exact 1 ] (c '┤')
+  , patCase [ Exact 1, Any    , Exact 1, Exact 1, Exact 1 ] (c '┬')
+  , patCase [ Exact 1, Exact 1, Exact 1, Any    , Exact 1 ] (c '┴')
 
-  , patCase [ Exact 1, Exact 1, Exact 1          ] (c '├')
-  , patCase [ Exact 1, Any    , Exact 1, Exact 1 ] (c '┤')
-  , patCase [ Any    , Exact 1, Exact 1, Exact 1 ] (c '┬')
-  , patCase [ Exact 1, Exact 1, Any    , Exact 1 ] (c '┴')
+  , patCase [ Exact 1, Exact 1                            ] (c '│')
+  , patCase [ Exact 1, Any    , Exact 1                   ] (c '─')
+  , patCase [ Exact 1, Any    , Any    , Exact 1          ] (c '│')
+  , patCase [ Exact 1, Any    , Any    , Any    , Exact 1 ] (c '─')
 
-  , patCase [                                    ] (c '+')
+  , patCase [ Exact 1                                     ] (c 'o')
+
+    -- staircases
+  , patCase [ Exact 2                                     ] (c '>')
+  , patCase [ Exact 3                                     ] (c '<')
+
+    -- unknown tile
+  , patCase [                                             ] (c ' ')
   ]
   where
   c = Vty.char Vty.def_attr
