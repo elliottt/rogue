@@ -7,7 +7,7 @@ import           Control.Concurrent.STM
 import           Control.Monad ( forever, when, guard, mplus )
 import           Data.Array ( Array, listArray, (!) )
 import           Data.Array.IO
-                     ( IOUArray, getBounds, newListArray, readArray
+                     ( IOArray, getBounds, newListArray, readArray
                      , writeArray, inRange )
 import           Data.Foldable ( fold )
 import           Data.List ( transpose )
@@ -15,6 +15,7 @@ import qualified Data.Map as Map
 import           Data.Maybe ( isJust, mapMaybe, listToMaybe, maybeToList )
 import           Data.Monoid ( Monoid(..) )
 import qualified Graphics.Vty as Vty
+
 
 main :: IO ()
 main  =
@@ -106,8 +107,8 @@ updatePlayer w p =
      bounds <- getBounds (wMap w)
      if not (inRange bounds pos)
         then return w
-        else do t <- readArray (wMap w) pos
-                if passable t
+        else do cell <- readArray (wMap w) pos
+                if passable (cTile cell)
                    then return w { wPlayer = p }
                    else return w
 
@@ -117,18 +118,24 @@ data Player = Player { pX, pY :: !Int
                      } deriving (Show)
 
 initialPlayer :: Player
-initialPlayer  = Player { pX = 4, pY = 4 }
+initialPlayer  = Player { pX = 4, pY = 3 }
 
 
 type Tile = Int
 
-type Map = IOUArray (Int,Int) Tile
+data Cell = Cell { cTile :: !Tile
+                 } deriving (Show)
+
+mkCell :: Int -> Cell
+mkCell t = Cell { cTile = t }
+
+type Map = IOArray (Int,Int) Cell
 
 passable :: Tile -> Bool
 passable t = t /= 1
 
 newMap :: IO Map
-newMap  = newListArray ( (0,0), (9,9) ) $ concat $ transpose
+newMap  = newListArray ( (0,0), (9,9) ) $ map mkCell $ concat $ transpose
   [ [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ]
   , [ 1, 0, 0, 0, 3, 1, 1, 1, 0, 1 ]
   , [ 1, 0, 0, 0, 0, 0, 0, 1, 0, 1 ]
@@ -141,13 +148,13 @@ newMap  = newListArray ( (0,0), (9,9) ) $ concat $ transpose
   , [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ] ]
 
 
-neighbors :: Map -> (Int,Int) -> IO [Tile]
+neighbors :: Map -> (Int,Int) -> IO [Cell]
 neighbors m cell@(x,y) =
   do bounds <- getBounds m
      sequence $ do coord <- [ (x,y), (x,y-1), (x+1,y), (x,y+1), (x-1,y) ]
                    if inRange bounds coord
                       then return (readArray m coord)
-                      else return (return 0)
+                      else return (return (mkCell 0))
 
 
 drawWorld :: World -> IO Vty.Image
@@ -161,12 +168,11 @@ drawWorld w =
     where
     check                          = y == pY p
     getTile x | check && x == pX p = return (Vty.char Vty.def_attr '@')
-              | otherwise          = do ns <- neighbors m (x,y)
-                                        return (pickTile ns)
+              | otherwise          = pickCell `fmap` neighbors m (x,y)
 
 
-pickTile :: [Tile] -> Vty.Image
-pickTile ns = case lookupPat ns palette of
+pickCell :: [Cell] -> Vty.Image
+pickCell ns = case lookupPat (map cTile ns) palette of
   Just i -> i
   _      -> error "Invalid tile"
 
