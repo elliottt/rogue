@@ -12,7 +12,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Rogue, Rogue.Dungeon, Rogue.Ascii, Rogue.World
+  exposed-modules:     Rogue, Rogue.Dungeon, Rogue.Ascii, Rogue.Map, Rogue.World
   hs-source-dirs:      src
   default-language:    Haskell2010
   build-depends:       base >=4.6 && <5,
@@ -21,7 +21,10 @@ library
                        monadLib,
                        vty,
                        containers,
-                       stm
+                       stm,
+                       sdl2,
+                       gl,
+                       lens
 
 executable rogue
   main-is:             Main.hs

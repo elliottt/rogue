@@ -1,5 +1,7 @@
 module Main where
 
+import Rogue.Map
+
 import           Control.Applicative ( (<|>) )
 import           Control.Concurrent ( forkIO )
 import           Control.Concurrent.STM
@@ -82,12 +84,12 @@ handleEvent evt = case evt of
 -- World State -----------------------------------------------------------------
 
 data World = World { wPlayer :: Player
-                   , wMap    :: Map
+                   , wMap    :: MapView Cell
                    }
 
 initialWorld :: IO World
 initialWorld  =
-  do m <- newMap
+  do m <- newMap dungeonSpec
      return World { wPlayer = initialPlayer
                   , wMap    = m }
 
@@ -134,6 +136,16 @@ type Map = IOArray (Int,Int) Cell
 passable :: Tile -> Bool
 passable t = t /= 1
 
+dungeonSpec :: MapSpec Cell
+dungeonSpec  = MapSpec { msChunkWidth  = 32
+                       , msChunkHeight = 32
+                       , msChunkGen    = genFloor
+                       }
+  where
+  genFloor spec =
+    return (replicate (msChunkWidth spec * msChunkHeight spec) (mkCell 0))
+
+{-
 newMap :: IO Map
 newMap  = newListArray ( (0,0), (9,9) ) $ map mkCell $ concat $ transpose
   [ [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ]
@@ -145,7 +157,7 @@ newMap  = newListArray ( (0,0), (9,9) ) $ map mkCell $ concat $ transpose
   , [ 1, 0, 0, 1, 0, 1, 0, 1, 0, 1 ]
   , [ 1, 0, 0, 0, 0, 0, 0, 1, 0, 1 ]
   , [ 1, 0, 0, 0, 0, 1, 1, 1, 0, 1 ]
-  , [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ] ]
+  , [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ] ] -}
 
 
 neighbors :: Map -> (Int,Int) -> IO [Cell]
