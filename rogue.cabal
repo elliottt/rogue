@@ -24,7 +24,8 @@ library
                        stm,
                        sdl2,
                        gl,
-                       lens
+                       lens,
+                       heaps
 
 executable rogue
   main-is:             Main.hs
