@@ -74,20 +74,21 @@ class HasPosition a where
 instance HasPosition Position where
   position = lens id (\_ p -> p)
 
-data Direction = North | East | South | West
+data Direction = North | NorthEast
+               | East  | SouthEast
+               | South | SouthWest
+               | West  | NorthWest
                  deriving (Eq,Ord,Show)
 
 move :: HasPosition a => Direction -> a -> a
-move North = moveUp
-move East  = moveRight
-move South = moveDown
-move West  = moveLeft
-
-moveUp, moveDown, moveLeft, moveRight :: HasPosition a => a -> a
-moveUp    = over posY (subtract 1)
-moveDown  = over posY (+ 1)
-moveLeft  = over posX (subtract 1)
-moveRight = over posX (+ 1)
+move North     = over posY (subtract 1)
+move NorthEast = over posY (subtract 1) . over posX (+ 1)
+move East      =                          over posX (+ 1)
+move SouthEast = over posY (+ 1)        . over posX (+ 1)
+move South     = over posY (+ 1)
+move SouthWest = over posY (+ 1)        . over posX (subtract 1)
+move West      =                          over posX (subtract 1)
+move NorthWest = over posY (subtract 1) . over posX (subtract 1)
 
 declareLenses [d|
 

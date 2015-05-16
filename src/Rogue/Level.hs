@@ -12,7 +12,7 @@ import qualified Data.HashSet as HS
 import qualified Data.Heap as Heap
 import           Data.Maybe (mapMaybe)
 import           Data.Traversable (mapAccumL)
-import           System.Random (StdGen,split)
+import           System.Random (StdGen,split,mkStdGen)
 
 
 -- Queries ---------------------------------------------------------------------
@@ -100,7 +100,9 @@ findPath start end lev = search HS.empty (Heap.singleton root)
 
 -- | Generate the successors.
 successors :: Level -> Position -> HS.HashSet Position -> Node -> [Node]
-successors lev target seen parent = mapMaybe moveTo [ North, East, South, West ]
+successors lev target seen parent =
+  mapMaybe moveTo [ North, NorthEast, East, SouthEast, South, SouthWest
+                  , West, NorthWest ]
   where
 
   moveTo dir =
