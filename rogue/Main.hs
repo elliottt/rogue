@@ -1,254 +1,121 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 module Main where
 
-import Rogue.Map
+import Paths_rogue (getDataDir)
+import TextureAtlas
 
-import           Control.Applicative ( (<|>) )
-import           Control.Concurrent ( forkIO )
-import           Control.Concurrent.STM
-                     ( atomically, TChan, newTChan, tryReadTChan, writeTChan )
-import           Control.Monad ( forever, when, guard, mplus )
-import           Data.Array ( Array, listArray, (!) )
-import           Data.Array.IO
-                     ( IOArray, getBounds, newListArray, readArray
-                     , writeArray, inRange )
-import           Data.Foldable ( fold )
-import           Data.List ( transpose )
-import qualified Data.Map as Map
-import           Data.Maybe ( isJust, mapMaybe, listToMaybe, maybeToList )
-import           Data.Monoid ( Monoid(..) )
-import qualified Graphics.Vty as Vty
+import Rogue.State
+
+import           Control.Concurrent (forkIO,threadDelay)
+import           Control.Concurrent.STM (TVar,newTVar,readTVar,writeTVar)
+import qualified Control.Exception as X
+import qualified Codec.Picture as JP
+import qualified Codec.Picture.Types as JP
+import qualified Data.ByteString.Lazy as L
+import           Data.Bits (shiftL,(.|.))
+import           Data.Word (Word32)
+import           Foreign.C.String (withCString)
+import           Foreign.C.Types (CInt)
+import           Foreign.Ptr (Ptr,nullPtr,plusPtr)
+import           Foreign.Storable (Storable(..))
+import qualified Graphics.UI.SDL as SDL
+import           System.FilePath ((</>))
 
 
 main :: IO ()
-main  =
-  do vty    <- Vty.mkVty
-     events <- processEvents vty
-
-     h      <- Vty.terminal_handle
-     bounds <- Vty.display_bounds h
-     cxt    <- Vty.display_context h bounds
-
-     mainLoop vty h cxt events
+-- main  =
+--   do ddir  <- getDataDir
+--      bytes <- L.readFile (ddir </> "sprites" </> "buildingTiles_sheet.xml")
+--      print (parseTextureAtlas bytes)
 
 
--- Main Loop -------------------------------------------------------------------
+main = withSDL $
+  do window   <- createWindow
+     renderer <- SDL.createRenderer window (-1) 0
+     SDL.setRenderDrawColor renderer 255 0 0 255
+     png <- loadImage renderer ("sprites" </> "buildingTiles_sheet.png")
+     SDL.renderClear renderer
+     SDL.renderCopy renderer png nullPtr nullPtr
+     SDL.renderPresent renderer
+     threadDelay 2000000
+     SDL.destroyWindow window
 
-mainLoop :: Vty.Vty -> Vty.TerminalHandle -> Vty.DisplayHandle
-         -> Events -> IO ()
-mainLoop vty h cxt events = go =<< initialWorld
+withSDL :: IO () -> IO ()
+withSDL  = X.bracket_ (SDL.init SDL.SDL_INIT_VIDEO) SDL.quit
+
+loadImage :: SDL.Renderer -> FilePath -> IO SDL.Texture
+loadImage renderer path =
+  do ddir <- getDataDir
+     e    <- JP.readImage (ddir </> path)
+     dyn  <- case e of
+               Right image -> return image
+               Left err    -> fail err
+
+     withPixelInfo dyn (\ img @ JP.Image { .. } ->
+       do suf <- SDL.createRGBSurface 0
+              (fromIntegral imageWidth)
+              (fromIntegral imageHeight) 32
+              0x000000ff 0x0000ff00 0x00ff0000 0xff000000
+
+          print (suf == nullPtr)
+
+          suf' <- SDL.convertSurfaceFormat suf SDL.SDL_PIXELFORMAT_RGBA8888 0
+          print (suf' == nullPtr)
+
+          SDL.lockSurface suf'
+          imageToSurface img =<< peek suf'
+          SDL.unlockSurface suf'
+
+          tex <- SDL.createTextureFromSurface renderer suf'
+          print (tex == nullPtr)
+
+          SDL.freeSurface suf
+          SDL.freeSurface suf'
+
+          return tex)
+
+
+imageToSurface :: PixelInfo a => JP.Image a -> SDL.Surface -> IO ()
+imageToSurface img suf = JP.pixelFoldM write () img
   where
-  go w =
-    do mb <- atomically (tryReadTChan events)
-
-       w' <- maybe (return w) (`processEvent` w) mb
-
-       img <- drawWorld w'
-       Vty.output_picture cxt (Vty.pic_for_image img)
-       case mb of
-         Just Quit -> Vty.shutdown vty
-         _         -> go w'
+  write () = pokePixel suf
 
 
--- Event Handling --------------------------------------------------------------
+createWindow :: IO SDL.Window
+createWindow  =
+  withCString "Rogue!" $ \ str ->
+  do SDL.createWindow str SDL.SDL_WINDOWPOS_UNDEFINED
+                          SDL.SDL_WINDOWPOS_UNDEFINED
+                          640 480 0
 
-type Events = TChan Event
+withPixelInfo :: JP.DynamicImage
+              -> (forall a. PixelInfo a => JP.Image a -> r)
+              -> r
+withPixelInfo dyn k =
+  case dyn of
+    JP.ImageY8     _img -> error "ImageY8"
+    JP.ImageY16    _img -> error "ImageY16"
+    JP.ImageYF     _img -> error "ImageYF"
+    JP.ImageYA8    _img -> error "ImageYA8"
+    JP.ImageYA16   _img -> error "ImageYA16"
+    JP.ImageRGB8   _img -> error "ImageRGB8"
+    JP.ImageRGB16  _img -> error "ImageRGB16"
+    JP.ImageRGBF   _img -> error "ImageRGBF"
+    JP.ImageRGBA8  img -> k img
+    JP.ImageRGBA16 _img -> error "ImageRGBA16"
+    JP.ImageYCbCr8 _img -> error "ImageYCbCr8"
+    JP.ImageCMYK8  _img -> error "ImageCMYK8"
+    JP.ImageCMYK16 _img -> error "ImageCMYK16"
 
-data Event = Quit
-           | MoveLeft
-           | MoveRight
-           | MoveUp
-           | MoveDown
-             deriving (Show)
+class (JP.Pixel a) => PixelInfo a where
+  pokePixel  :: SDL.Surface -> Int -> Int -> a -> IO ()
 
-processEvents :: Vty.Vty -> IO Events
-processEvents vty =
-  do events <- atomically newTChan
-     _ <- forkIO $ forever $
-       do evt <- Vty.next_event vty
-          case handleEvent evt of
-            Just evt' -> atomically (writeTChan events evt')
-            Nothing   -> return ()
-     return events
-
-
-handleEvent :: Vty.Event -> Maybe Event
-handleEvent evt = case evt of
-  Vty.EvKey (Vty.KASCII 'q') [] -> Just Quit
-  Vty.EvKey (Vty.KASCII 'h') [] -> Just MoveLeft
-  Vty.EvKey (Vty.KASCII 'l') [] -> Just MoveRight
-  Vty.EvKey (Vty.KASCII 'k') [] -> Just MoveUp
-  Vty.EvKey (Vty.KASCII 'j') [] -> Just MoveDown
-  _                             -> Nothing
-
-
--- World State -----------------------------------------------------------------
-
-data World = World { wPlayer :: Player
-                   , wMap    :: MapView Cell
-                   }
-
-initialWorld :: IO World
-initialWorld  =
-  do m <- newMap dungeonSpec
-     return World { wPlayer = initialPlayer
-                  , wMap    = m }
-
-processEvent :: Event -> World -> IO World
-processEvent evt w = case evt of
-  MoveLeft  -> updatePlayer w p { pX = pX p - 1 }
-  MoveRight -> updatePlayer w p { pX = pX p + 1 }
-  MoveUp    -> updatePlayer w p { pY = pY p - 1 }
-  MoveDown  -> updatePlayer w p { pY = pY p + 1 }
-  _         -> return w
-  where
-  p = wPlayer w
-
-updatePlayer :: World -> Player -> IO World
-updatePlayer w p =
-  do let pos = (pX p, pY p)
-     bounds <- getBounds (wMap w)
-     if not (inRange bounds pos)
-        then return w
-        else do cell <- readArray (wMap w) pos
-                if passable (cTile cell)
-                   then return w { wPlayer = p }
-                   else return w
-
-
-
-data Player = Player { pX, pY :: !Int
-                     } deriving (Show)
-
-initialPlayer :: Player
-initialPlayer  = Player { pX = 4, pY = 3 }
-
-
-type Tile = Int
-
-data Cell = Cell { cTile :: !Tile
-                 } deriving (Show)
-
-mkCell :: Int -> Cell
-mkCell t = Cell { cTile = t }
-
-type Map = IOArray (Int,Int) Cell
-
-passable :: Tile -> Bool
-passable t = t /= 1
-
-dungeonSpec :: MapSpec Cell
-dungeonSpec  = MapSpec { msChunkWidth  = 32
-                       , msChunkHeight = 32
-                       , msChunkGen    = genFloor
-                       }
-  where
-  genFloor spec =
-    return (replicate (msChunkWidth spec * msChunkHeight spec) (mkCell 0))
-
-{-
-newMap :: IO Map
-newMap  = newListArray ( (0,0), (9,9) ) $ map mkCell $ concat $ transpose
-  [ [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ]
-  , [ 1, 0, 0, 0, 3, 1, 1, 1, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 1, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 1, 0, 1 ]
-  , [ 1, 0, 0, 1, 1, 1, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 1, 3, 1, 0, 0, 0, 1 ]
-  , [ 1, 0, 0, 1, 0, 1, 0, 1, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 0, 0, 1, 0, 1 ]
-  , [ 1, 0, 0, 0, 0, 1, 1, 1, 0, 1 ]
-  , [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ] ] -}
-
-
-neighbors :: Map -> (Int,Int) -> IO [Cell]
-neighbors m cell@(x,y) =
-  do bounds <- getBounds m
-     sequence $ do coord <- [ (x,y), (x,y-1), (x+1,y), (x,y+1), (x-1,y) ]
-                   if inRange bounds coord
-                      then return (readArray m coord)
-                      else return (return (mkCell 0))
-
-
-drawWorld :: World -> IO Vty.Image
-drawWorld w =
-  do (_,(w,h)) <- getBounds m
-     Vty.vert_cat `fmap` mapM (drawRow w) [ 0 .. h ]
-  where
-  p = wPlayer w
-  m = wMap w
-  drawRow w y = Vty.horiz_cat `fmap` mapM getTile [ 0 .. w ]
-    where
-    check                          = y == pY p
-    getTile x | check && x == pX p = return (Vty.char Vty.def_attr '@')
-              | otherwise          = pickCell `fmap` neighbors m (x,y)
-
-
-pickCell :: [Cell] -> Vty.Image
-pickCell ns = case lookupPat (map cTile ns) palette of
-  Just i -> i
-  _      -> error "Invalid tile"
-
-palette :: PatTrie Vty.Image
-palette  = fold
-    -- lots of special cases for walls
-  [ patCase [ Exact 1, Exact 1, Exact 1, Exact 1, Exact 1 ] (c '┼')
-
-  , patCase [ Exact 1, Any,     Exact 1, Any    , Exact 1 ] (c '─')
-  , patCase [ Exact 1, Exact 1, Any,     Exact 1          ] (c '│')
-
-  , patCase [ Exact 1, Exact 1, Exact 1                   ] (c '└')
-  , patCase [ Exact 1, Any    , Exact 1, Exact 1          ] (c '┌')
-  , patCase [ Exact 1, Any    , Any    , Exact 1, Exact 1 ] (c '┐')
-  , patCase [ Exact 1, Exact 1, Any    , Any    , Exact 1 ] (c '┘')
-
-  , patCase [ Exact 1, Exact 1, Exact 1, Exact 1          ] (c '├')
-  , patCase [ Exact 1, Exact 1, Any    , Exact 1, Exact 1 ] (c '┤')
-  , patCase [ Exact 1, Any    , Exact 1, Exact 1, Exact 1 ] (c '┬')
-  , patCase [ Exact 1, Exact 1, Exact 1, Any    , Exact 1 ] (c '┴')
-
-  , patCase [ Exact 1, Exact 1                            ] (c '│')
-  , patCase [ Exact 1, Any    , Exact 1                   ] (c '─')
-  , patCase [ Exact 1, Any    , Any    , Exact 1          ] (c '│')
-  , patCase [ Exact 1, Any    , Any    , Any    , Exact 1 ] (c '─')
-
-  , patCase [ Exact 1                                     ] (c 'o')
-
-    -- staircases
-  , patCase [ Exact 2                                     ] (c '>')
-  , patCase [ Exact 3                                     ] (c '<')
-
-    -- unknown tile
-  , patCase [                                             ] (c ' ')
-  ]
-  where
-  c = Vty.char Vty.def_attr
-
-
-data Pat = Exact Tile | Any deriving (Show,Eq,Ord)
-
-data PatTrie a = PatTrie (Map.Map Pat (PatTrie a)) (Maybe a) deriving (Show)
-
-instance Monoid (PatTrie a) where
-  mempty                                = PatTrie Map.empty Nothing
-  mappend (PatTrie as a) (PatTrie bs b) =
-    PatTrie (Map.unionWith mappend as bs) (a <|> b)
-
-patCase :: [Pat] -> a -> PatTrie a
-patCase key i = go key
-  where
-  go ps = case ps of
-    p:rest -> PatTrie (Map.singleton p (go rest)) Nothing
-    []     -> PatTrie Map.empty (Just i)
-
-lookupPat :: [Tile] -> PatTrie a -> Maybe a
-lookupPat ps pats = listToMaybe (patChoices ps pats)
-
-patChoices :: [Tile] -> PatTrie a -> [a]
-patChoices ps (PatTrie m mb) = case ps of
-
-  p:rest ->
-    case Map.lookup (Exact p) m `mplus` Map.lookup Any m of
-      Just pats -> patChoices rest pats ++ maybeToList mb
-      Nothing   -> maybeToList mb
-
-  [] -> maybeToList mb
+instance PixelInfo JP.PixelRGBA8 where
+  pokePixel SDL.Surface { .. } x y (JP.PixelRGBA8 r g b a) =
+    do w <- SDL.mapRGBA surfaceFormat r g b a
+       let off = sizeOf w * (fromIntegral surfaceW * y + x)
+       pokeByteOff surfacePixels off w

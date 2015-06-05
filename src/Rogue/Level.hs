@@ -30,6 +30,9 @@ positionValid pos (Level tiles) =
   where
   p = view position pos
 
+index :: Level -> Position -> Cell
+index (Level arr) pos = arr Arr.! pos
+
 
 -- Generation ------------------------------------------------------------------
 
