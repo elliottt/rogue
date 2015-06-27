@@ -35,6 +35,9 @@ library
 
 executable rogue
   main-is:             Main.hs
+  other-modules:       Texture
+                       TextureAtlas
+                       Tiles
   build-depends:       base >=4.6 && <5,
                        vty >= 4.7.3,
                        stm >= 2.4.2,
